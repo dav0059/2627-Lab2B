@@ -149,6 +149,55 @@ capitale *cancella_nome(capitale *testa, char *s)
   return testa;
 }
 
+capitale *filter(capitale *testa, char *s)
+{
+  assert(s != NULL); 
+  if(testa == NULL) return NULL; 
+  if(strcmp(testa -> nome, s) == 0){ 
+    capitale *tmp = testa -> next;
+    capitale_distruggi(testa);  
+    return filter(tmp, s); 
+  }
+  testa -> next = filter(testa -> next, s); 
+  return testa;  
+}
+
+// [1, 2, 3, 4, 5]
+// 1. 1 % 2 == 1 -> 1::filter[2, 3, 4, 5]
+// 2. 2 % 2 == 0 -> 1::filter[3, 4, 5]
+// 3. 3 % 2 == 1 -> 1::3::filter[4, 5]
+// 4. 4 % 2 == 0 -> 1::3::filter[5] 
+// 5. 5 % 2 == 1 -> 1::3::5::filter[] = 1::3::5::[] 
+
+capitale *filter_iter(capitale *lis, char *s)
+{
+  assert(s != NULL); 
+  
+  capitale *prec = NULL; 
+  capitale *testa = lis; 
+  while(lis != NULL) {
+    capitale *succ = lis -> next; 
+    if(succ == NULL) {
+      if(strcmp(lis -> nome, s) == 0) {
+        if(prec != NULL) 
+          prec -> next = NULL;
+        else 
+          testa = NULL;  
+        capitale_distruggi(lis);  
+      } 
+      return testa; 
+    }
+    if(strcmp(succ -> nome, s) == 0) {
+      lis -> next = succ -> next;  
+      capitale_distruggi(succ); 
+    } else {
+      prec = lis; 
+      lis = lis -> next; 
+    } 
+  } 
+  return testa; 
+}
+
 // come sopra bozza versione iterativa; non 
 capitale *cancella_nome_iter(capitale *lis, char *s)
 {
@@ -207,16 +256,65 @@ capitale *inserisci_lat_iter(capitale *testa, capitale *c)
 {
   assert(c!=NULL);
   capitale *p = testa;
+  capitale *prec = NULL; 
   while(p!=NULL) {
     // l'elemento c deve essere inserito dopo quelli
     // che hanno latitudine maggiore di c->lat e
     // prima di quelli che hanno latitudine minore di c->lat
+    if(c -> lat >= p -> lat) {
+      if(prec == NULL) {
+        c -> next = p; 
+        return c; 
+      } 
+      prec -> next = c; 
+      c -> next = p;  
+      return testa; 
+    }
+    prec = p; 
+    p = p -> next; 
   }    
-  // ora bisogna restituire la testa della nuova lista
-  // è cambiata se c è stato messo in cima alla lista
-  return NULL; // NULL è sicuramente sbagliato
+  if(prec == NULL){ 
+    c -> next = NULL;
+    return c; 
+  }
+  prec -> next = c; 
+  c -> next = NULL; 
+  return testa; 
 }
 
+capitale *inserisci_ord_iter(capitale *testa, capitale *c, int(*comp)(capitale *, capitale *))
+{
+  assert(c != NULL); 
+  capitale *p = testa; 
+  capitale *prec = NULL; 
+  while(true) {
+    //la lista è finita
+    if(p == NULL) {
+      if(prec == NULL) {
+        c -> next = NULL; 
+        return c; 
+      }
+      prec -> next = c; 
+      c -> next = p;
+      return testa; 
+    }
+    //la lista non è finita e sono nel punto in cui 
+    //va inserita la capitale
+    if((*comp)(c, p) >= 0) {
+      if(prec == NULL) {
+        c -> next = p; 
+        return c; 
+      } 
+      prec -> next = c; 
+      c -> next = p; 
+      return testa; 
+    }
+    //la lista non è finita e non sono ancora nel punto 
+    //in cui va inserita la capitale 
+    prec = p; 
+    p = p -> next; 
+  }
+}
 
 // crea una lista con gli oggetti capitale letti da 
 // *f inserendoli per latitudini descrescente
@@ -228,11 +326,28 @@ capitale *crea_lista_lat(FILE *f)
     capitale *b = capitale_leggi(f);
     if(b==NULL) break;
     // inserisco b in testa alla lista    
-    testa = inserisci_lat_ric(testa,b);
+    testa = inserisci_lat_iter(testa,b); 
   }
   return testa;
 }
 
+capitale *crea_lista_ord(int (*comp)(capitale *, capitale *), FILE *f)
+{
+  capitale *testa = NULL; 
+  while(true) {
+    capitale *b = capitale_leggi(f); 
+    if(b == NULL) break; 
+    testa = inserisci_ord_iter(testa, b, comp); 
+  }
+  return testa; 
+}
+
+int capitale_lex_comp(capitale *a, capitale *b)
+{
+  assert(a != NULL); 
+  assert(b != NULL); 
+  return strcmp(a -> nome, b -> nome); 
+}
 
 int main(int argc, char *argv[])
 {
@@ -259,7 +374,16 @@ int main(int argc, char *argv[])
   lista_capitale_stampa(testa,stdout);  
   puts("--- fine lista ---");
 
+  // test filter_iter
+  testa = filter_iter(testa, "Londra"); 
+  puts("--- inizio lista (con tutte le occorrenze di Londra cancellate) --");
+  lista_capitale_stampa(testa, stdout); 
+  puts("--- fine lista ---"); 
+  lista_capitale_distruggi(testa); 
+
   // elimina Londra e Varsavia dalla lista
+  rewind(f); 
+  testa = crea_lista_coda(f); 
   testa = cancella_nome_iter(testa,"Londra");
   testa = cancella_nome_iter(testa,"Varsavia");
   puts("--- inizio lista (con Londra e Varsavia cancellate) ---");
@@ -267,13 +391,20 @@ int main(int argc, char *argv[])
   puts("--- fine lista ---");
   lista_capitale_distruggi(testa);
   
-  // costruzione lista inserendo per latitudine decrescente
+  // // costruzione lista inserendo per latitudine decrescente
   rewind(f); // riavvolge il file
   testa=crea_lista_lat(f);
   puts("--- inizio lista (inserimento per latitudine) ---");
   // stampa lista capitali appena ri-creata
   lista_capitale_stampa(testa,stdout);  
   puts("--- fine lista ---");
+
+  // costruzione lista inserendo per ordine lessicografico
+  rewind(f); 
+  testa = crea_lista_ord(capitale_lex_comp, f); 
+  puts("--- inizio lista (inserimento lessicografico) ---"); 
+  lista_capitale_stampa(testa, stdout); 
+  puts("--- fine lista ---"); 
   
   if(fclose(f)==EOF)
     termina("Errore chiusura");
